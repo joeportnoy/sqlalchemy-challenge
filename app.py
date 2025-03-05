@@ -120,25 +120,38 @@ def date_start(start):
 
     session = Session(engine)
 
+    #Find the earliest date in the dataset
+    earliest_date = session.query(func.min(Measurement.date)).scalar()
+
+    # If the start date is before the earliest available date, return an error
+    if start < earliest_date:
+        session.close()
+        return jsonify({"ERROR": f"No data available before {earliest_date}."}), 404
+    
     #Calculate lowest, highest, and average temperatures
     station_data_temps = session.query(
-        func.min(Measurement.tobs),
-        func.max(Measurement.tobs),
-        func.avg(Measurement.tobs)
-    ).filter(Measurement.date >= start).all()
+        Measurement.date,
+        func.min(Measurement.tobs).label("TMIN"),
+        func.avg(Measurement.tobs).label("TAVG"),
+        func.max(Measurement.tobs).label("TMAX")
+    ).filter(Measurement.date >= start).group_by(Measurement.date).all()
 
     session.close()
 
-    if station_data_temps[0][0] is None:
-        return jsonify({"ERROR": "No data found for the specified start date."}), 404
+    # Check if results are empty
+    if station_data_temps is None:
+        return jsonify({"ERROR": "No data found for the specified start date or beyond."}), 404
 
-    temp_stats = {
-        "Lowest Temperature": station_data_temps[0][0],
-        "Highest Temperature": station_data_temps[0][1],
-        "Average Temperature": station_data_temps[0][2]
-    }
+    temp_data = []
+    for date, tmin, tmax, tavg in station_data_temps:
+        temp_data.append({
+        "Date": date,
+        "Lowest Temperature": tmin,
+        "Highest Temperature": tmax,
+        "Temperature Average": tavg
+    })
 
-    return jsonify(temp_stats)
+    return jsonify(temp_data)
 
 @app.route("/api/v1.0/<start>/<end>")
 def date_start_end(start, end):
